@@ -7,6 +7,7 @@ use host::Externals;
 use runner::{check_function_args, Interpreter};
 use value::RuntimeValue;
 use module::ModuleInstance;
+use runner::{FunctionContext, prepare_function_args};
 
 /// Reference to a function (See [`FuncInstance`] for details).
 ///
@@ -120,7 +121,7 @@ impl FuncInstance {
 		FuncRef(Rc::new(FuncInstance(func)))
 	}
 
-	pub(crate) fn body(&self) -> Option<Rc<FuncBody>> {
+	pub fn body(&self) -> Option<Rc<FuncBody>> {
 		match *self.as_internal() {
 			FuncInstanceInternal::Internal { ref body, .. } => Some(Rc::clone(body)),
 			FuncInstanceInternal::Host { .. } => None,
@@ -153,6 +154,36 @@ impl FuncInstance {
 			} => externals.invoke_index(*host_func_index, args.into()),
 		}
 	}
+
+  pub fn invoke_context<E: Externals>(
+    func: &FuncRef,
+    function_context: &mut FunctionContext,
+    externals: &mut E,
+  ) -> Result<Option<FunctionContext>, Trap> {
+    match *func.as_internal() {
+      FuncInstanceInternal::Internal { .. } => {
+        let nested_context = function_context.nested(func.clone()).map_err(Trap::new)?;
+        Ok(Some(nested_context))
+      },
+      FuncInstanceInternal::Host { ref signature, .. } => {
+        let args = prepare_function_args(signature, &mut function_context.value_stack);
+        let return_val = FuncInstance::invoke(&func, &args, externals)?;
+
+        // Check if `return_val` matches the signature.
+        let value_ty = return_val.clone().map(|val| val.value_type());
+        let expected_ty = func.signature().return_type();
+        if value_ty != expected_ty {
+          return Err(TrapKind::UnexpectedSignature.into());
+        }
+
+        if let Some(return_val) = return_val {
+          function_context.value_stack_mut().push(return_val).map_err(Trap::new)?;
+        }
+        Ok(None)
+      }
+    }
+
+  }
 }
 
 #[derive(Clone, Debug)]

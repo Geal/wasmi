@@ -24,7 +24,7 @@ pub const DEFAULT_FRAME_STACK_LIMIT: usize = 16384;
 
 /// Function interpreter.
 pub struct Interpreter<'a, E: Externals + 'a> {
-	externals: &'a mut E,
+	pub externals: &'a mut E,
 }
 
 /// Interpreter action to execute after executing instruction.
@@ -42,7 +42,7 @@ pub enum InstructionOutcome {
 }
 
 /// Function run result.
-enum RunResult {
+pub enum RunResult {
 	/// Function has returned (optional) value.
 	Return(Option<RuntimeValue>),
 	/// Function is calling other function.
@@ -98,7 +98,16 @@ impl<'a, E: Externals> Interpreter<'a, E> {
 					}
 				},
 				RunResult::NestedCall(nested_func) => {
-					match *nested_func.as_internal() {
+          match FuncInstance::invoke_context(&nested_func, &mut function_context, self.externals)? {
+            None => {
+							function_stack.push_back(function_context);
+            },
+            Some(nested_context) => {
+							function_stack.push_back(function_context);
+							function_stack.push_back(nested_context);
+            }
+          }
+					/*match *nested_func.as_internal() {
 						FuncInstanceInternal::Internal { .. } => {
 							let nested_context = function_context.nested(nested_func.clone()).map_err(Trap::new)?;
 							function_stack.push_back(function_context);
@@ -121,12 +130,13 @@ impl<'a, E: Externals> Interpreter<'a, E> {
 							function_stack.push_back(function_context);
 						}
 					}
+          */
 				},
 			}
 		}
 	}
 
-	fn do_run_function(&mut self, function_context: &mut FunctionContext, function_body: &[Opcode], function_labels: &HashMap<usize, usize>) -> Result<RunResult, TrapKind> {
+	pub fn do_run_function(&mut self, function_context: &mut FunctionContext, function_body: &[Opcode], function_labels: &HashMap<usize, usize>) -> Result<RunResult, TrapKind> {
 		loop {
 			let instruction = &function_body[function_context.position];
 
@@ -1040,7 +1050,7 @@ impl<'a, E: Externals> Interpreter<'a, E> {
 }
 
 /// Function execution context.
-struct FunctionContext {
+pub struct FunctionContext {
 	/// Is context initialized.
 	pub is_initialized: bool,
 	/// Internal function reference.
@@ -1213,7 +1223,7 @@ fn effective_address(address: u32, offset: u32) -> Result<u32, TrapKind> {
 	}
 }
 
-fn prepare_function_args(
+pub fn prepare_function_args(
 	signature: &Signature,
 	caller_stack: &mut ValueStack,
 ) -> Vec<RuntimeValue> {
@@ -1251,7 +1261,7 @@ pub fn check_function_args(signature: &Signature, args: &[RuntimeValue]) -> Resu
 	Ok(())
 }
 
-struct ValueStack {
+pub struct ValueStack {
 	stack_with_limit: StackWithLimit<RuntimeValue>,
 }
 
@@ -1292,7 +1302,7 @@ impl ValueStack {
 		self.stack_with_limit.pop().expect("Due to validation stack shouldn't be empty")
 	}
 
-	fn push(&mut self, value: RuntimeValue) -> Result<(), TrapKind> {
+	pub fn push(&mut self, value: RuntimeValue) -> Result<(), TrapKind> {
 		self.stack_with_limit.push(value)
 			.map_err(|_| TrapKind::StackOverflow)
 	}
